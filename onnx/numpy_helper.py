@@ -8,6 +8,7 @@ import sys
 import numpy as np
 from onnx import TensorProto
 from onnx import mapping
+from onnx.external_data_helper import read_eternal_data
 
 if sys.byteorder != 'little':
     raise RuntimeError(
@@ -18,11 +19,13 @@ if sys.byteorder != 'little':
 def combine_pairs_to_complex(fa):
     return [complex(fa[i * 2], fa[i * 2 + 1]) for i in range(len(fa) // 2)]
 
-def to_array(tensor):
+
+def to_array(tensor, external_data_dir=None):
     """Converts a tensor def object to a numpy array.
 
     Inputs:
         tensor: a TensorProto object.
+        external_data_path: filesystem directory from which external data is to be read.
     Returns:
         arr: the converted array.
     """
@@ -45,6 +48,11 @@ def to_array(tensor):
         # Raw_bytes support: using frombuffer.
         return np.frombuffer(
             tensor.raw_data,
+            dtype=np_dtype).reshape(dims)
+    elif tensor.HasField("external_data"):
+        # Read data from an external file.
+        return np.frombuffer(
+            read_eternal_data(tensor.external_data, external_data_dir),
             dtype=np_dtype).reshape(dims)
     else:
         data = getattr(tensor, storage_field),
