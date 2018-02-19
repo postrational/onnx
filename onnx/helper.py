@@ -14,6 +14,7 @@ from onnx import TensorProto, AttributeProto, ValueInfoProto, \
     NodeProto, ModelProto, GraphProto, OperatorSetIdProto, IR_VERSION
 import onnx.defs as defs
 from onnx import mapping
+from onnx.external_data_helper import write_external_data
 from onnx.mapping import STORAGE_TENSOR_TYPE_TO_FIELD
 
 def make_node(
@@ -100,14 +101,17 @@ def split_complex_to_pairs(ca):
             for i in range(len(ca) * 2)]
 
 
-def make_tensor(name, data_type, dims, vals, raw=False):
-    '''
-    Make a TensorProto with specified arguments.  If raw is False, this
-    function will choose the corresponding proto field to store the
-    values based on data_type. If raw is True, use "raw_data" proto
-    field to store the values, and values should be of type bytes in
-    this case.
-    '''
+def make_tensor(name, data_type, dims, vals, raw=False, external_data_dir=None):
+    """Make a TensorProto with specified arguments.
+
+    If raw is False, this function will choose the corresponding proto field
+    to store the values based on data_type. If raw is True, use "raw_data"
+    proto field to store the values, and values should be of type bytes in this case.
+
+    If external_data_dir is set to a filesystem path, bytes values will be stored
+    in an external file and the "external_data" field will contain a URL reference
+    to the external data location.
+    """
     tensor = TensorProto()
     tensor.data_type = data_type
     tensor.name = name
@@ -119,7 +123,11 @@ def make_tensor(name, data_type, dims, vals, raw=False):
     if (data_type == TensorProto.COMPLEX64 or
             data_type == TensorProto.COMPLEX128):
         vals = split_complex_to_pairs(vals)
-    if raw:
+
+    if raw and external_data_dir:
+        external_data_url = write_external_data(vals, external_data_dir, name)
+        tensor.external_data = external_data_url
+    elif raw:
         tensor.raw_data = vals
     else:
         field = mapping.STORAGE_TENSOR_TYPE_TO_FIELD[
@@ -214,7 +222,7 @@ def get_attribute_value(attr):
     elif attr.HasField('t'):
         return attr.t
     elif attr.HasField('g'):
-        return onnn_attr.g
+        return attr.g
     elif len(attr.floats):
         return list(attr.floats)
     elif len(attr.ints):

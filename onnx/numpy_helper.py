@@ -8,6 +8,7 @@ import sys
 import numpy as np
 from onnx import TensorProto
 from onnx import mapping
+from onnx.external_data_helper import read_external_data
 
 if sys.byteorder != 'little':
     raise RuntimeError(
@@ -17,6 +18,7 @@ if sys.byteorder != 'little':
 
 def combine_pairs_to_complex(fa):
     return [complex(fa[i * 2], fa[i * 2 + 1]) for i in range(len(fa) // 2)]
+
 
 def to_array(tensor):
     """Converts a tensor def object to a numpy array.
@@ -46,6 +48,11 @@ def to_array(tensor):
         return np.frombuffer(
             tensor.raw_data,
             dtype=np_dtype).reshape(dims)
+    elif tensor.HasField("external_data_runtime_path"):
+        # Read data from an external file.
+        raw_data = read_external_data(tensor.external_data_runtime_path)
+        tensor.raw_data = raw_data
+        return np.frombuffer(raw_data, dtype=np_dtype).reshape(dims)
     else:
         data = getattr(tensor, storage_field),
         if (tensor_dtype == TensorProto.COMPLEX64 or

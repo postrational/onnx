@@ -3,6 +3,7 @@ from __future__ import division
 from __future__ import print_function
 from __future__ import unicode_literals
 
+from onnx.external_data_helper import set_runtime_external_data_path_on_tensors
 from .onnx_pb import *  # noqa
 from .version import version as __version__  # noqa
 
@@ -47,3 +48,16 @@ def load_from_string(s):
             "Protobuf decoding consumed too few bytes: {} out of {}".format(
                 decoded, len(s)))
     return model
+
+
+def load_from_disk(filename):
+    """Load binary protobuf file with an ONNX model.
+
+    :param filename:
+    :return:
+    """
+    with open(filename, 'rb') as f:
+        onnx_string = f.read()
+    onnx_protobuf = load_from_string(onnx_string)
+    set_runtime_external_data_path_on_tensors(onnx_protobuf, filename)
+    return onnx_protobuf
