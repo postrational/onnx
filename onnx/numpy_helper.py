@@ -4,8 +4,11 @@ from __future__ import print_function
 from __future__ import unicode_literals
 
 import sys
+import os
 
 import numpy as np
+from six.moves.urllib.parse import urlparse
+
 from onnx import TensorProto
 from onnx import mapping
 
@@ -17,6 +20,21 @@ if sys.byteorder != 'little':
 
 def combine_pairs_to_complex(fa):
     return [complex(fa[i * 2], fa[i * 2 + 1]) for i in range(len(fa) // 2)]
+
+
+def load_external_data(tensor):
+    """Load data from an external file based on the `external_data` field.
+
+    Inputs:
+        tensor: a TensorProto object.
+    Returns:
+        raw_data: bytes string containing data in raw_data format
+    """
+    uri_data = urlparse(tensor.external_data)
+    external_data_file_path = os.path.join(uri_data.path, uri_data.fragment)
+    with open(external_data_file_path, 'rb') as data_file:
+        raw_data = data_file.read()
+    return raw_data
 
 
 def to_array(tensor):
@@ -47,6 +65,12 @@ def to_array(tensor):
         return np.frombuffer(
             tensor.raw_data,
             dtype=np_dtype).reshape(dims)
+    elif tensor.HasField("external_data") \
+            and tensor.external_data.startswith('runtime://'):
+        # Read data from an external file.
+        raw_data = load_external_data(tensor)
+        tensor.raw_data = raw_data
+        return np.frombuffer(raw_data, dtype=np_dtype).reshape(dims)
     else:
         data = getattr(tensor, storage_field),
         if (tensor_dtype == TensorProto.COMPLEX64 or
