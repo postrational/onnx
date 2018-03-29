@@ -120,6 +120,29 @@ class TestExternalData(unittest.TestCase):
         self.assertTrue(np.allclose(to_array(attribute_tensor),
                                     attribute_value))
 
+    def test_external_data_eager_loading(self):
+        # Create a model with data stored in external files and save to disk
+        model = self.create_test_model()
+        initializer_value = to_array(model.graph.initializer[0])
+        attribute_value = to_array(model.graph.node[0].attribute[0].t)
+
+        for tensor in get_all_tensors(model):
+            tensor.external_data = generate_persistence_value(tensor.name)
+        filename = self.get_temp_model_filename()
+        save_to_disk(model, filename)
+
+        # Load model and eagerly load all external data from disk
+        loaded_model = load_from_disk(filename, lazy_loading=False)
+        initializer_tensor = loaded_model.graph.initializer[0]
+        self.assertTrue(initializer_tensor.HasField('raw_data'))
+        self.assertTrue(np.allclose(to_array(initializer_tensor),
+                                    initializer_value))
+
+        attribute_tensor = loaded_model.graph.node[0].attribute[0].t
+        self.assertTrue(attribute_tensor.HasField('raw_data'))
+        self.assertTrue(np.allclose(to_array(attribute_tensor),
+                                    attribute_value))
+
 
 if __name__ == '__main__':
     unittest.main()

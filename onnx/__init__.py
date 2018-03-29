@@ -54,10 +54,13 @@ def load_from_string(s):
     return model
 
 
-def load_from_disk(onnx_filename):
+def load_from_disk(onnx_filename, lazy_loading=True):
     """Load binary protobuf file with an ONNX model.
 
     :param onnx_filename: Path to file containing an ONNX model.
+    :param lazy_loading: By default tensor values are loaded from external data
+            files only when accessed using `numpy_helper.to_array`.
+            Set this to False to load all external data values into memory.
     :return: loaded ONNX model
     """
     with open(onnx_filename, 'rb') as f:
@@ -66,6 +69,10 @@ def load_from_disk(onnx_filename):
 
     external_data_helper.set_external_data_runtime_values(
         onnx_model_proto, onnx_filename)
+
+    if not lazy_loading:
+        for tensor in external_data_helper.get_all_tensors(onnx_model_proto):
+            numpy_helper.to_array(tensor)
 
     return onnx_model_proto
 
