@@ -8,9 +8,9 @@ import shutil
 import os
 
 import onnx
-from onnx import helper
+from onnx import helper, load_from_disk, save_to_disk
 from onnx.external_data_helper import get_all_tensors, \
-    generate_persistence_value, save_to_disk, load_from_disk
+    generate_persistence_value
 from onnx.numpy_helper import to_array
 
 
