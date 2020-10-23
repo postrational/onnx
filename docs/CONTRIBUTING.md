@@ -8,7 +8,7 @@ way to get these dependencies is via [Anaconda](https://www.anaconda.com/downloa
 conda install -c conda-forge protobuf numpy
 ```
 
-During development, it's convenient to install ONNX in development mode (for ONNX-ML, set environment variable `ONNX_ML=1`):
+During development, it's convenient to install ONNX in development mode (to disable ONNX-ML, set environment variable `ONNX_ML=0`):
 
 ```
 git clone --recursive https://github.com/onnx/onnx.git
@@ -88,7 +88,7 @@ python setup.py typecheck
 
 # License
 
-[MIT License](LICENSE)
+[MIT License](https://github.com/onnx/onnx/blob/master/LICENSE)
 
 # Code of Conduct
 

@@ -6,6 +6,8 @@
 
 namespace ONNX_NAMESPACE {
 
+using Dim = TensorShapeProto_Dimension;
+
 class GraphInferencer {
  public:
   // Perform inferencing on the graph contained in GraphInferencer.
@@ -151,9 +153,11 @@ multiplyDims(const TensorShapeProto& shape, int from, int upto_exclusive) {
   return dim;
 }
 
-// propagate the element type from an input type to an output type.
-// if an existing output element type exists, validate it matches.
-inline void propagateElemTypeWithValidation(
+void propagateElemTypeWithValidation(
+    const TypeProto* input_type,
+    TypeProto* output_type);
+
+inline void propagateTensorElemTypeWithValidation(
     const TypeProto* input_type,
     TypeProto* output_type) {
   if (nullptr == input_type) {
@@ -195,11 +199,55 @@ inline void propagateElemTypeWithValidation(
   }
 }
 
+inline void propagateSequenceElemTypeWithValidation(
+    const TypeProto* input_type,
+    TypeProto* output_type) {
+  if (nullptr == input_type) {
+    fail_type_inference("Input type was null");
+  }
+
+  if (input_type->value_case() != TypeProto::kSequenceType) {
+    fail_type_inference(
+        "Input was expected to have sequence type. Got ",
+        input_type->value_case());
+  }
+
+  auto input_seq_type = input_type->sequence_type();
+
+  if (input_seq_type.has_elem_type()) {
+    propagateElemTypeWithValidation(
+        &input_seq_type.elem_type(),
+        output_type->mutable_sequence_type()->mutable_elem_type());
+  } else {
+    fail_type_inference("Element type of input was unknown");
+  }
+}
+
+// propagate the element type from an input type to an output type.
+// if an existing output element type exists, validate it matches.
+inline void propagateElemTypeWithValidation(
+    const TypeProto* input_type,
+    TypeProto* output_type) {
+  if (nullptr == input_type) {
+    fail_type_inference("Input type was null");
+  }
+
+  if (input_type->value_case() == TypeProto::kTensorType) {
+    propagateTensorElemTypeWithValidation(input_type, output_type);
+  } else if (input_type->value_case() == TypeProto::kSequenceType) {
+    propagateSequenceElemTypeWithValidation(input_type, output_type);
+  } else {
+    fail_type_inference(
+        "Input was expected to have either tensor or sequence type. Got ",
+        input_type->value_case());
+  }
+}
+
 // Note: for all methods below for propagating type or shape, callers are
 // responsible to handle optional inputs/outputs and ensure that the specified
 // index value is less than NumInputs/NumOutputs.
 
-inline void propagateElemTypeFromInputToOutput(
+inline void propagateElemTypeFromTensorInputToOutput(
     InferenceContext& ctx,
     size_t inputIndex,
     size_t outputIndex) {
@@ -220,6 +268,47 @@ inline void propagateElemTypeFromInputToOutput(
     // This is not expected to happen
     fail_type_inference(
         "Output ", outputIndex, " expected to have tensor type");
+  }
+}
+
+inline void propagateElemTypeFromSequenceInputToOutput(
+    InferenceContext& ctx,
+    size_t inputIndex,
+    size_t outputIndex) {
+  auto input_type = ctx.getInputType(inputIndex);
+  if (nullptr == input_type ||
+      input_type->value_case() != TypeProto::kSequenceType) {
+    fail_type_inference("Input ", inputIndex, " expected to have sequence type");
+  }
+  auto input_seq_type = input_type->sequence_type();
+  if (input_seq_type.has_elem_type() && input_seq_type.elem_type().has_tensor_type()) {
+    if (input_seq_type.elem_type().tensor_type().elem_type() == TensorProto::UNDEFINED) {
+      fail_type_inference("Element type of input ", inputIndex, " unknown");
+    }
+    auto output_type = ctx.getOutputType(outputIndex);
+    if (output_type->value_case() == TypeProto::kSequenceType ||
+        output_type->value_case() == TypeProto::VALUE_NOT_SET) {
+      output_type->mutable_sequence_type()->mutable_elem_type()->mutable_tensor_type()->set_elem_type(
+          input_seq_type.elem_type().tensor_type().elem_type());
+    } else {
+      fail_type_inference(
+          "Output ", outputIndex, " expected to have sequence type");
+    }
+  }
+}
+
+inline void propagateElemTypeFromInputToOutput(
+    InferenceContext& ctx,
+    size_t inputIndex,
+    size_t outputIndex) {
+  auto input_type = ctx.getInputType(inputIndex);
+  if (nullptr == input_type) {
+    fail_type_inference("Input ", inputIndex, " expected to have type but instead is null");
+  }
+  if (input_type->value_case() == TypeProto::kTensorType) {
+    propagateElemTypeFromTensorInputToOutput(ctx, inputIndex, outputIndex);
+  } else if (input_type->value_case() == TypeProto::kSequenceType) {
+    propagateElemTypeFromSequenceInputToOutput(ctx, inputIndex, outputIndex);
   }
 }
 
@@ -255,10 +344,18 @@ inline void propagateElemTypeFromDtypeToOutput(
       ctx, attribute_tensor_datatype, outputIndex);
 }
 
+inline bool hasShape(const TypeProto& type) {
+  if (type.has_tensor_type()) {
+    return type.tensor_type().has_shape();
+  } else if (type.has_sequence_type() && type.sequence_type().has_elem_type()) {
+    return hasShape(type.sequence_type().elem_type());
+  }
+  return false;
+}
+
 inline bool hasInputShape(InferenceContext& ctx, size_t n) {
   return ctx.getNumInputs() > static_cast<size_t>(n) && ctx.getInputType(n) &&
-      ctx.getInputType(n)->has_tensor_type() &&
-      ctx.getInputType(n)->tensor_type().has_shape();
+      hasShape(*ctx.getInputType(n));
 }
 
 inline bool hasNInputShapes(InferenceContext& ctx, size_t n) {
@@ -302,14 +399,19 @@ inline void propagateShapeFromInputToOutput(
     size_t outputIndex) {
   auto output_type = ctx.getOutputType(outputIndex);
   auto input_type = ctx.getInputType(inputIndex);
+
   if (TypeProto::kTensorType != input_type->value_case() ||
       TypeProto::kTensorType != output_type->value_case()) {
     throw std::runtime_error(ONNX_NAMESPACE::to_string(
         ctx.getInputType(inputIndex)->tensor_type().shape().dim_size()));
   }
 
-  *ctx.getOutputType(outputIndex)->mutable_tensor_type()->mutable_shape() =
-      ctx.getInputType(inputIndex)->tensor_type().shape();
+  // If input shape is "uknown", the corresponding should be "unknown" too.
+  // The way to make output shape unknown is not to assign it any value.
+  if (hasShape(*input_type)) {
+    *output_type->mutable_tensor_type()->mutable_shape() =
+        input_type->tensor_type().shape();
+  }
 }
 
 inline void propagateShapeAndTypeFromFirstInput(InferenceContext& ctx) {
@@ -375,6 +477,10 @@ inline TensorShapeProto* getOutputShape(InferenceContext& ctx, size_t n) {
     return output_type->mutable_tensor_type()->mutable_shape();
   } else
     fail_type_inference("Output ", n, " expected to have tensor type");
+}
+
+inline void appendDim(TensorShapeProto* shape, int64_t dim_value) {
+  shape->add_dim()->set_dim_value(dim_value);
 }
 
 inline void updateOutputShape(
@@ -501,7 +607,9 @@ If source has no dimension information, ignore source.
 If both have dimension information:
  - Prefer values over params. If both have values, values must match.
  - Prefer target param over source param if mismatched.
-Fail if there are mismatches in number of dimensions or dimension values.
+Fail if there are mismatches in dimension values.
+Currently, there is no way to refine/update dimension information for the
+source from information available in the target.
 */
 inline void mergeInDimensionInfo(
     const TensorShapeProto_Dimension& source_dim,
@@ -639,6 +747,196 @@ inline TypeProto RemoveDimensionsFromShape(
 template <class T, class U>
 static constexpr T narrow_cast(U&& u) noexcept {
   return static_cast<T>(std::forward<U>(u));
+}
+
+inline void
+checkInputRank(InferenceContext& ctx, size_t input_index, int expected_rank) {
+  // We check the rank only if a rank is known for the input:
+  if (hasInputShape(ctx, input_index)) {
+    auto rank = getInputShape(ctx, input_index).dim_size();
+    if (rank != expected_rank)
+      fail_shape_inference(
+          "Input ",
+          input_index,
+          " expected to have rank ",
+          expected_rank,
+          " but has rank ",
+          rank);
+  }
+}
+
+// Unification (between dimensions and/or shapes) is at the heart of
+// shape-inference. The current inference algorithm can check input
+// shapes/dimensions of a node and update the output shapes/dimensions. It
+// cannot currently update input shapes and dimensions (even though in some
+// contexts this inference is possible). Hence, we have the variants below to
+// support "const" and "mutable" dimensions/shapes in unification.
+
+inline void checkDimEquality(int64_t value1, int64_t value2) {
+  if (value1 != value2)
+    fail_shape_inference(
+        "Dimension mismatch in unification between ", value1, " and ", value2);
+}
+
+inline void unifyDim(const Dim& dim1, const Dim& dim2) {
+  if (dim1.has_dim_value() && dim2.has_dim_value())
+    checkDimEquality(dim1.dim_value(), dim2.dim_value());
+}
+
+// TODO: The functionality of unifyDim is similar to that of
+// mergeInDimensionInfo. However, the error messages are different. Leaving this
+// duplication in-place to preserve error message content.
+inline void unifyDim(const Dim& source_dim, Dim& target_dim) {
+  if (source_dim.has_dim_value()) {
+    auto source_value = source_dim.dim_value();
+    if (target_dim.has_dim_value()) {
+      auto target_value = target_dim.dim_value();
+      checkDimEquality(source_value, target_value);
+    } else {
+      target_dim.set_dim_value(source_value);
+    }
+  } else if (target_dim.has_dim_value()) {
+    // if target has a value we preserve it.
+    // we cannot set source dim value.
+  } else if (target_dim.has_dim_param()) {
+    // prefer target param over source
+    // we cannot currently unify the dim_params
+  } else if (source_dim.has_dim_param()) {
+    target_dim.set_dim_param(source_dim.dim_param());
+  }
+}
+
+inline void unifyInputDim(
+    InferenceContext& ctx,
+    size_t input_index,
+    int dim_index,
+    Dim& dim) {
+  // We unify the dimensions only if it is available for specified input:
+  if (hasInputShape(ctx, input_index)) {
+    auto& input_shape = getInputShape(ctx, input_index);
+    // This shape is expected to have rank > dim_index:
+    if (input_shape.dim_size() <= dim_index)
+      fail_shape_inference(
+          "Input ",
+          input_index,
+          " expected to have rank >",
+          dim_index,
+          " but has rank ",
+          input_shape.dim_size());
+    const Dim& input_dim = input_shape.dim(dim_index);
+    // Now, unify dim and input_dim:
+    unifyDim(input_dim, dim);
+  }
+}
+
+// unifyDim: unifies a dimension with a constant value. If the dimension
+// already has a value, we check for equality of new value with old value.
+inline void unifyDim(Dim& dim, int64_t value) {
+  if (dim.has_dim_value()) {
+    checkDimEquality(dim.dim_value(), value);
+  } else
+    dim.set_dim_value(value);
+}
+
+// target-shape = Union (target-shape, source_shape)
+// Example 1: same rank, different dimensions
+//    input1 shape: (2, 3, 4, 'x')
+//    input2 shape: (2, 'y', 5, 'x')
+//    output shape: (2, None, None, 'x')
+// Example 2: different rank
+//    input1 shape: (2, 3, 4, 'x')
+//    input2 shape: (2, 3, 4)
+//    output shape: None
+inline void UnionShapeInfo(
+    const TensorShapeProto& source_shape,
+    TypeProto_Tensor& target_type) {
+  if (target_type.has_shape()) {
+    TensorShapeProto* target_shape = target_type.mutable_shape();
+
+    auto source_rank = source_shape.dim_size();
+    auto target_rank = target_shape->dim_size();
+    if (source_rank != target_rank) {
+      target_type.clear_shape();
+      return;
+    }
+
+    for (int i = 0; i < source_rank; ++i) {
+      const auto source_dim = source_shape.dim(i);
+      const auto target_dim = target_shape->dim(i);
+      bool is_dims_conflict = [&](){
+        if (source_dim.has_dim_value()) {
+          if (target_dim.has_dim_value() &&
+              target_dim.dim_value() == source_dim.dim_value()) {
+            return false;
+          }
+          return true;
+        }
+
+        if (source_dim.has_dim_param()) {
+          if (target_dim.has_dim_param() &&
+              target_dim.dim_param() == source_dim.dim_param()) {
+            return false;
+          }
+          return true;
+        }
+
+        return (target_dim.has_dim_value() || target_dim.has_dim_param());
+      }();
+      if (is_dims_conflict &&
+          (target_dim.has_dim_value() || target_dim.has_dim_param())) {
+        auto dim = target_shape->mutable_dim(i);
+        dim->clear_dim_value();
+        dim->clear_dim_param();
+      }
+    }
+  }
+}
+
+// target-type = Union (target-type, source-type)
+// target and source are required to have the same type.
+// Example 1: same tensor type, different shape
+//    source: tensor elem_type: int64, shape: (2, 3, 4, 'x')
+//    target: tensor elem_type: int64, shape: (2, 'y', 5, 'x')
+//    output: tensor elem_type: int64, shape: (2, None, None, 'x')
+// Example 2: same sequence type, different shape
+//    source: sequence of tensor, elem_type: float, shape: (2, 3, 4)
+//    target: sequence of tensor, elem_type: float, shape: None
+//    output: sequence of tensor, elem_type: float, shape: None
+inline void UnionTypeInfo(
+    const TypeProto& source_type,
+    TypeProto& target_type) {
+  if (source_type.value_case() != target_type.value_case()) {
+    fail_type_inference(
+        "Mismatched type:",
+        " source=",
+        source_type.value_case(),
+        " target=",
+        target_type.value_case());
+  }
+
+  if (target_type.has_tensor_type()) {
+    auto source_elem_type = source_type.tensor_type().elem_type();
+    auto target_elem_type = target_type.tensor_type().elem_type();
+
+    if (source_elem_type != target_elem_type) {
+      fail_type_inference(
+          "Mismatched tensor element type:",
+          " source=",
+          source_elem_type,
+          " target=",
+          target_elem_type);
+    }
+
+    UnionShapeInfo(source_type.tensor_type().shape(), *target_type.mutable_tensor_type());
+  } else if (target_type.has_sequence_type()) {
+    if (!source_type.sequence_type().has_elem_type()) {
+      fail_type_inference("source sequence type missing element type.");
+    }
+    if (!target_type.sequence_type().has_elem_type()) {
+      fail_type_inference("target sequence type missing element type.");
+    }
+    UnionTypeInfo(source_type.sequence_type().elem_type(), *target_type.mutable_sequence_type()->mutable_elem_type());
+  }
 }
 
 } // namespace ONNX_NAMESPACE

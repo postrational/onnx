@@ -8,8 +8,8 @@ import random
 import numpy as np  # type: ignore
 
 from onnx import helper, defs, numpy_helper, checker
-from onnx import AttributeProto, TensorProto, GraphProto
-from typing import Text, Any, List
+from onnx import AttributeProto, TensorProto, GraphProto, ModelProto
+from typing import Text, Any, List, Tuple
 
 import unittest
 
@@ -74,6 +74,11 @@ class TestHelperAttributeFunctions(unittest.TestCase):
         self.assertEqual(attr.name, "str")
         self.assertEqual(attr.s, b"test")
         checker.check_attribute(attr)
+        # empty str
+        attr = helper.make_attribute("str", "")
+        self.assertEqual(attr.name, "str")
+        self.assertEqual(helper.get_attribute_value(attr), b"")
+        checker.check_attribute(attr)
 
     def test_attr_repeated_float(self):  # type: () -> None
         attr = helper.make_attribute("floats", [1.0, 2.0])
@@ -85,6 +90,12 @@ class TestHelperAttributeFunctions(unittest.TestCase):
         attr = helper.make_attribute("ints", [1, 2])
         self.assertEqual(attr.name, "ints")
         self.assertEqual(list(attr.ints), [1, 2])
+        checker.check_attribute(attr)
+
+    def test_attr_repeated_mixed_floats_and_ints(self):  # type: () -> None
+        attr = helper.make_attribute("mixed", [1, 2, 3.0, 4.5])
+        self.assertEqual(attr.name, "mixed")
+        self.assertEqual(list(attr.floats), [1.0, 2.0, 3.0, 4.5])
         checker.check_attribute(attr)
 
     def test_attr_repeated_str(self):  # type: () -> None
@@ -266,6 +277,27 @@ class TestHelperNodeFunctions(unittest.TestCase):
         dupe.value = 'Other'
         self.assertRaises(checker.ValidationError, checker.check_model, model_def)
 
+    def test_model_irversion(self):  # type: () -> None
+        def mk_model(opset_versions):  # type: (List[Tuple[Text, int]]) -> ModelProto
+            graph = helper.make_graph([], "my graph", [], [])
+            return helper.make_model_gen_version(graph, opset_imports=[helper.make_opsetid(*pair) for pair in opset_versions])
+
+        def test(opset_versions, ir_version):  # type: (List[Tuple[Text, int]], int) -> None
+            model = mk_model(opset_versions)
+            self.assertEqual(model.ir_version, ir_version)
+        # opset version 9 requires minimum ir_version 4
+        test([("", 9)], 4)
+        test([("", 10)], 5)
+        test([("", 11)], 6)
+        test([("", 12)], 7)
+        # standard opset can be referred to using empty-string or "ai.onnx"
+        test([("ai.onnx", 9)], 4)
+        test([("ai.onnx.ml", 2)], 6)
+        test([("ai.onnx.training", 1)], 7)
+        # helper should pick *max* IR version required from all opsets specified.
+        test([("", 10), ("ai.onnx.ml", 2)], 6)
+        self.assertRaises(ValueError, mk_model, [("", 100)])
+
 
 class TestHelperTensorFunctions(unittest.TestCase):
 
@@ -301,6 +333,27 @@ class TestHelperTensorFunctions(unittest.TestCase):
         )
         self.assertEqual(string_list, list(tensor.string_data))
 
+    def test_make_sparse_tensor(self):  # type: () -> None
+        values = [1.1, 2.2, 3.3, 4.4, 5.5]
+        values_tensor = helper.make_tensor(
+            name='test',
+            data_type=TensorProto.FLOAT,
+            dims=(5, ),
+            vals=values
+        )
+        indices = [1, 3, 5, 7, 9]
+        indices_tensor = helper.make_tensor(
+            name='test_indices',
+            data_type=TensorProto.INT64,
+            dims=(5, ),
+            vals=indices
+        )
+        dense_shape = [10]
+        sparse = helper.make_sparse_tensor(values_tensor, indices_tensor, dense_shape)
+        self.assertEqual(sparse.values, values_tensor)
+        self.assertEqual(sparse.indices, indices_tensor)
+        self.assertEqual(sparse.dims, dense_shape)
+
     def test_make_tensor_value_info(self):  # type: () -> None
         vi = helper.make_tensor_value_info('X', TensorProto.FLOAT, (2, 4))
         checker.check_value_info(vi)
@@ -308,6 +361,46 @@ class TestHelperTensorFunctions(unittest.TestCase):
         # scalar value
         vi = helper.make_tensor_value_info('Y', TensorProto.FLOAT, ())
         checker.check_value_info(vi)
+
+
+class TestPrintableGraph(unittest.TestCase):
+
+    def test_initializer_with_matching_graph_input(self):  # type: () -> None
+        add = helper.make_node("Add", ["X", "Y_Initializer"], ["Z"])
+        value_info = [helper.make_tensor_value_info("Y", TensorProto.FLOAT, [1])]
+
+        graph = helper.make_graph(
+            [add],
+            "test",
+            [helper.make_tensor_value_info("X", TensorProto.FLOAT, [1]),
+             helper.make_tensor_value_info("Y_Initializer", TensorProto.FLOAT, [1])],  # inputs
+            [helper.make_tensor_value_info("Z", TensorProto.FLOAT, [1])],  # outputs
+            [helper.make_tensor("Y_Initializer", TensorProto.FLOAT, [1], [1])],  # initializers
+            doc_string=None,
+            value_info=value_info
+        )
+
+        graph_str = helper.printable_graph(graph)
+        self.assertTrue(''') optional inputs with matching initializers (
+  %Y_Initializer[FLOAT, 1]''' in graph_str, graph_str)
+
+    def test_initializer_no_matching_graph_input(self):  # type: () -> None
+        add = helper.make_node("Add", ["X", "Y_Initializer"], ["Z"])
+        value_info = [helper.make_tensor_value_info("Y", TensorProto.FLOAT, [1])]
+
+        graph = helper.make_graph(
+            [add],
+            "test",
+            [helper.make_tensor_value_info("X", TensorProto.FLOAT, [1])],  # inputs
+            [helper.make_tensor_value_info("Z", TensorProto.FLOAT, [1])],  # outputs
+            [helper.make_tensor("Y_Initializer", TensorProto.FLOAT, [1], [1])],  # initializers
+            doc_string=None,
+            value_info=value_info
+        )
+
+        graph_str = helper.printable_graph(graph)
+        self.assertTrue(''') initializers (
+  %Y_Initializer[FLOAT, 1]''' in graph_str, graph_str)
 
 
 if __name__ == '__main__':
