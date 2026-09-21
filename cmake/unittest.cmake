@@ -19,6 +19,7 @@ set(test_src
     ${ONNX_ROOT}/tests/cpp/shape_inference_test.cc
     ${ONNX_ROOT}/tests/cpp/tensor_test.cc
     ${ONNX_ROOT}/tests/cpp/test_main.cc
+    ${ONNX_ROOT}/tests/cpp/type_builders_test.cc
     ${ONNX_ROOT}/tests/cpp/utf8_conversion_test.cc
     ${ONNX_ROOT}/tests/cpp/version_converter_test.cc
 )

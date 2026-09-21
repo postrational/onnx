@@ -1198,6 +1198,36 @@ const std::vector<std::string>& OpSchema::all_non_complex_numeric_types_plus_boo
   return v;
 }
 
+const std::vector<std::string>& OpSchema::all_integer_types() {
+  static const auto v = types::Tensors(
+      {TensorProto::INT8,
+       TensorProto::INT16,
+       TensorProto::INT32,
+       TensorProto::INT64,
+       TensorProto::UINT8,
+       TensorProto::UINT16,
+       TensorProto::UINT32,
+       TensorProto::UINT64});
+  return v;
+}
+
+const std::vector<std::string>& OpSchema::all_integer_types_ir13() {
+  static const auto v = types::Tensors(
+      {TensorProto::INT2,
+       TensorProto::INT4,
+       TensorProto::INT8,
+       TensorProto::INT16,
+       TensorProto::INT32,
+       TensorProto::INT64,
+       TensorProto::UINT2,
+       TensorProto::UINT4,
+       TensorProto::UINT8,
+       TensorProto::UINT16,
+       TensorProto::UINT32,
+       TensorProto::UINT64});
+  return v;
+}
+
 const std::vector<std::string>& OpSchema::all_float_types_ir4() {
   static const auto v =
       types::Tensors({TensorProto::BFLOAT16, TensorProto::FLOAT16, TensorProto::FLOAT, TensorProto::DOUBLE});

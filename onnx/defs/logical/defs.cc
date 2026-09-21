@@ -157,17 +157,7 @@ ONNX_OPERATOR_SET_SCHEMA(
             OpSchema::NonDifferentiable)
         .Input(1, "Y", "Second operand, amounts of shift.", "T", OpSchema::Single, true, 1, OpSchema::NonDifferentiable)
         .Output(0, "Z", "Output tensor", "T", OpSchema::Single, true, 1, OpSchema::NonDifferentiable)
-        .TypeConstraint(
-            "T",
-            {types::UInt8,
-             types::UInt16,
-             types::UInt32,
-             types::UInt64,
-             types::Int8,
-             types::Int16,
-             types::Int32,
-             types::Int64},
-            "Constrain input and output types to integer tensors.")
+        .TypeConstraint("T", OpSchema::all_integer_types(), "Constrain input and output types to integer tensors.")
         .Attr(
             "direction",
             "Direction of moving bits. It can be either \"RIGHT\" (for right shift) "
@@ -223,17 +213,7 @@ ONNX_OPERATOR_SET_SCHEMA(
         .SetDoc(kDoc_BitwiseNot_ver18)
         .Input(0, "X", "Input tensor", "T", OpSchema::Single, true, 1, OpSchema::NonDifferentiable)
         .Output(0, "Y", "Output tensor", "T", OpSchema::Single, true, 1, OpSchema::NonDifferentiable)
-        .TypeConstraint(
-            "T",
-            {types::UInt8,
-             types::UInt16,
-             types::UInt32,
-             types::UInt64,
-             types::Int8,
-             types::Int16,
-             types::Int32,
-             types::Int64},
-            "Constrain input/output to integer tensors.")
+        .TypeConstraint("T", OpSchema::all_integer_types(), "Constrain input/output to integer tensors.")
         .TypeAndShapeInferenceFunction(propagateShapeAndTypeFromFirstInput));
 
 static std::function<void(OpSchema&)> BinaryBitwiseDocGenerator(const char* name) {
@@ -286,50 +266,20 @@ ONNX_OPERATOR_SET_SCHEMA(
     18,
     OpSchema()
         .FillUsing(BinaryBitwiseDocGenerator("and"))
-        .TypeConstraint(
-            "T",
-            {types::UInt8,
-             types::UInt16,
-             types::UInt32,
-             types::UInt64,
-             types::Int8,
-             types::Int16,
-             types::Int32,
-             types::Int64},
-            "Constrain input to integer tensors."));
+        .TypeConstraint("T", OpSchema::all_integer_types(), "Constrain input to integer tensors."));
 
 ONNX_OPERATOR_SET_SCHEMA(
     BitwiseOr,
     18,
     OpSchema()
         .FillUsing(BinaryBitwiseDocGenerator("or"))
-        .TypeConstraint(
-            "T",
-            {types::UInt8,
-             types::UInt16,
-             types::UInt32,
-             types::UInt64,
-             types::Int8,
-             types::Int16,
-             types::Int32,
-             types::Int64},
-            "Constrain input to integer tensors."));
+        .TypeConstraint("T", OpSchema::all_integer_types(), "Constrain input to integer tensors."));
 
 ONNX_OPERATOR_SET_SCHEMA(
     BitwiseXor,
     18,
     OpSchema()
         .FillUsing(BinaryBitwiseDocGenerator("xor"))
-        .TypeConstraint(
-            "T",
-            {types::UInt8,
-             types::UInt16,
-             types::UInt32,
-             types::UInt64,
-             types::Int8,
-             types::Int16,
-             types::Int32,
-             types::Int64},
-            "Constrain input to integer tensors."));
+        .TypeConstraint("T", OpSchema::all_integer_types(), "Constrain input to integer tensors."));
 
 } // namespace ONNX_NAMESPACE

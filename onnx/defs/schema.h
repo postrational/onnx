@@ -616,6 +616,10 @@ class OpSchema final {
 
   ONNX_API static const std::vector<std::string>& all_non_complex_numeric_types_plus_bool_ir4();
 
+  ONNX_API static const std::vector<std::string>& all_integer_types();
+
+  ONNX_API static const std::vector<std::string>& all_integer_types_ir13();
+
   ONNX_API static const std::vector<std::string>& all_float_types_ir4();
 
   ONNX_API static const std::vector<std::string>& all_float_types_plus_Xint8_ir4();
